@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>USA Engineering Deans Directory</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="page-header">
+        <h1>USA Engineering Deans Directory</h1>
+        <p>
+          Search for deans of engineering schools in U.S. colleges and
+          universities, including address and contact details.
+        </p>
+      </header>
+
+      <section class="controls" aria-label="Search controls">
+        <label class="field">
+          <span>Search by institution, dean, city, state, zip, or email</span>
+          <input
+            id="searchInput"
+            type="search"
+            placeholder="Try: MIT, California, 78712, dean@..."
+          />
+        </label>
+
+        <label class="field">
+          <span>Filter by state</span>
+          <select id="stateFilter">
+            <option value="">All states</option>
+          </select>
+        </label>
+
+        <button id="clearButton" type="button">Clear filters</button>
+      </section>
+
+      <section class="results-summary" aria-live="polite">
+        <p id="resultCount">Loading directory...</p>
+      </section>
+
+      <section class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Institution</th>
+              <th>Dean</th>
+              <th>Address</th>
+              <th>City</th>
+              <th>State</th>
+              <th>Zip</th>
+              <th>Email</th>
+            </tr>
+          </thead>
+          <tbody id="directoryBody"></tbody>
+        </table>
+      </section>
+
+      <section class="notes">
+        <h2>Notes</h2>
+        <ul>
+          <li>
+            This starter contains sample records. Replace
+            <code>data/deans.json</code> with verified data for production use.
+          </li>
+          <li>Keep contact details current by reviewing each institution website.</li>
+        </ul>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

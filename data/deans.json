@@ -1,0 +1,137 @@
+[
+  {
+    "institution": "Massachusetts Institute of Technology",
+    "dean": "Anantha P. Chandrakasan",
+    "address": "77 Massachusetts Ave",
+    "city": "Cambridge",
+    "state": "MA",
+    "zip": "02139",
+    "email": "dean-engineering@mit.edu"
+  },
+  {
+    "institution": "Stanford University",
+    "dean": "Jennifer Widom",
+    "address": "475 Via Ortega",
+    "city": "Stanford",
+    "state": "CA",
+    "zip": "94305",
+    "email": "dean-engineering@stanford.edu"
+  },
+  {
+    "institution": "University of California, Berkeley",
+    "dean": "Tsu-Jae King Liu",
+    "address": "210S Sutardja Dai Hall, Berkeley Way",
+    "city": "Berkeley",
+    "state": "CA",
+    "zip": "94720",
+    "email": "engineering_dean@berkeley.edu"
+  },
+  {
+    "institution": "Georgia Institute of Technology",
+    "dean": "Raheem Beyah",
+    "address": "225 North Ave NW",
+    "city": "Atlanta",
+    "state": "GA",
+    "zip": "30332",
+    "email": "dean-engineering@gatech.edu"
+  },
+  {
+    "institution": "University of Michigan",
+    "dean": "Karen Thole",
+    "address": "1221 Beal Ave",
+    "city": "Ann Arbor",
+    "state": "MI",
+    "zip": "48109",
+    "email": "engin-dean-office@umich.edu"
+  },
+  {
+    "institution": "University of Illinois Urbana-Champaign",
+    "dean": "Rashid Bashir",
+    "address": "306 N Wright St",
+    "city": "Urbana",
+    "state": "IL",
+    "zip": "61801",
+    "email": "engineering@illinois.edu"
+  },
+  {
+    "institution": "Carnegie Mellon University",
+    "dean": "Bill Sanders",
+    "address": "5000 Forbes Ave",
+    "city": "Pittsburgh",
+    "state": "PA",
+    "zip": "15213",
+    "email": "engineeringdean@cmu.edu"
+  },
+  {
+    "institution": "Purdue University",
+    "dean": "Arvind Raman",
+    "address": "701 W Stadium Ave",
+    "city": "West Lafayette",
+    "state": "IN",
+    "zip": "47907",
+    "email": "engrdean@purdue.edu"
+  },
+  {
+    "institution": "University of Texas at Austin",
+    "dean": "Roger T. Bonnecaze",
+    "address": "301 E Dean Keeton St",
+    "city": "Austin",
+    "state": "TX",
+    "zip": "78712",
+    "email": "dean@engr.utexas.edu"
+  },
+  {
+    "institution": "University of Washington",
+    "dean": "Nancy Allbritton",
+    "address": "Loew Hall, 1410 NE Campus Pkwy",
+    "city": "Seattle",
+    "state": "WA",
+    "zip": "98195",
+    "email": "engrdean@uw.edu"
+  },
+  {
+    "institution": "Texas A&M University",
+    "dean": "Robert H. Bishop",
+    "address": "3127 TAMU, 125 Spence St",
+    "city": "College Station",
+    "state": "TX",
+    "zip": "77843",
+    "email": "engineering@tamu.edu"
+  },
+  {
+    "institution": "University of Florida",
+    "dean": "Cammy R. Abernathy",
+    "address": "1949 Stadium Rd",
+    "city": "Gainesville",
+    "state": "FL",
+    "zip": "32611",
+    "email": "dean@eng.ufl.edu"
+  },
+  {
+    "institution": "Ohio State University",
+    "dean": "Ayanna Howard",
+    "address": "205 Dreese Labs, 2015 Neil Ave",
+    "city": "Columbus",
+    "state": "OH",
+    "zip": "43210",
+    "email": "engineering@osu.edu"
+  },
+  {
+    "institution": "Northwestern University",
+    "dean": "Christopher Schuh",
+    "address": "2145 Sheridan Rd",
+    "city": "Evanston",
+    "state": "IL",
+    "zip": "60208",
+    "email": "mccormick-dean@northwestern.edu"
+  },
+  {
+    "institution": "University of Southern California",
+    "dean": "Yannis C. Yortsos",
+    "address": "3650 McClintock Ave",
+    "city": "Los Angeles",
+    "state": "CA",
+    "zip": "90089",
+    "email": "viterbi.dean@usc.edu"
+  }
+]
