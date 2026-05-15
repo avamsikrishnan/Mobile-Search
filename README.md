@@ -32,6 +32,8 @@ python dean_scraper.py \
   --verbose
 ```
 
+By default, the scraper uses `https://r.jina.ai/` as a read-only fallback when a page returns bot-blocking responses (for example `403`), which improves fully automated runs.
+
 ### Run from a file
 
 Create `universities.txt` with one university name per line, then:
@@ -41,6 +43,12 @@ python dean_scraper.py \
   --input-file universities.txt \
   --output dean_results.json \
   --csv-output dean_results.csv
+```
+
+To disable fallback proxy fetching:
+
+```bash
+python dean_scraper.py --input-file universities.txt --no-proxy-fallback
 ```
 
 ## Output format

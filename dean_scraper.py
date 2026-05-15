@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import json
 import re
@@ -19,11 +20,9 @@ from bs4 import BeautifulSoup
 
 REQUEST_TIMEOUT = 12
 MAX_TEXT_CHARS = 400_000
-DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
-)
+# Search providers sometimes return bot challenge pages for modern browser UAs.
+# A minimal UA string is often more stable for server-side scraping workflows.
+DEFAULT_USER_AGENT = "Mozilla/5.0"
 
 EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 DEAN_KEYWORD_RE = re.compile(
@@ -61,25 +60,28 @@ PRIORITY_LINK_TERMS = (
     "leadership",
     "administration",
     "directory",
-    "faculty",
     "contact",
-    "about",
-    "office",
+    "governance",
+    "provost",
+    "president",
 )
 STOPWORDS_FOR_NAME = {
-    "Office",
-    "University",
-    "College",
-    "School",
-    "Campus",
-    "Department",
-    "Faculty",
-    "Interim",
-    "Acting",
-    "Associate",
-    "Vice",
-    "Dean",
-    "The",
+    "office",
+    "university",
+    "college",
+    "school",
+    "campus",
+    "department",
+    "faculty",
+    "interim",
+    "acting",
+    "associate",
+    "vice",
+    "dean",
+    "the",
+    "url",
+    "source",
+    "title",
 }
 
 
@@ -107,11 +109,13 @@ class DeanScraper:
         max_pages: int = 20,
         max_search_results: int = 8,
         delay_seconds: float = 0.4,
+        allow_proxy_fallback: bool = True,
         verbose: bool = False,
     ) -> None:
         self.max_pages = max_pages
         self.max_search_results = max_search_results
         self.delay_seconds = delay_seconds
+        self.allow_proxy_fallback = allow_proxy_fallback
         self.verbose = verbose
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": DEFAULT_USER_AGENT})
@@ -122,8 +126,31 @@ class DeanScraper:
 
     def _safe_get(self, url: str) -> str | None:
         self._log(f"GET {url}")
+        host = urlparse(url).netloc.lower().replace("www.", "")
+        should_proxy_fallback = (
+            self.allow_proxy_fallback
+            and not host.endswith("bing.com")
+            and not host.endswith("duckduckgo.com")
+            and not url.startswith("https://r.jina.ai/")
+        )
         try:
             response = self.session.get(url, timeout=REQUEST_TIMEOUT)
+            if response.status_code >= 400:
+                if should_proxy_fallback and response.status_code in {401, 403, 406, 429}:
+                    return self._safe_get_via_proxy(url)
+                return None
+            response.encoding = response.encoding or "utf-8"
+            return response.text[:MAX_TEXT_CHARS]
+        except requests.RequestException:
+            if should_proxy_fallback:
+                return self._safe_get_via_proxy(url)
+            return None
+
+    def _safe_get_via_proxy(self, url: str) -> str | None:
+        proxy_url = f"https://r.jina.ai/{url}"
+        self._log(f"GET {proxy_url}")
+        try:
+            response = self.session.get(proxy_url, timeout=REQUEST_TIMEOUT + 8)
             if response.status_code >= 400:
                 return None
             response.encoding = response.encoding or "utf-8"
@@ -141,7 +168,7 @@ class DeanScraper:
     def _same_domain(url_a: str, url_b: str) -> bool:
         host_a = urlparse(url_a).netloc.lower().replace("www.", "")
         host_b = urlparse(url_b).netloc.lower().replace("www.", "")
-        return host_a == host_b
+        return host_a == host_b or host_a.endswith(f".{host_b}") or host_b.endswith(f".{host_a}")
 
     @staticmethod
     def _is_unwanted_domain(url: str) -> bool:
@@ -149,8 +176,15 @@ class DeanScraper:
         return any(host.endswith(domain) for domain in UNWANTED_HOMEPAGE_DOMAINS)
 
     def search_web(self, query: str, limit: int | None = None) -> list[str]:
-        """Scrape DuckDuckGo HTML search result URLs."""
+        """Search with provider fallbacks and return canonical URLs."""
         result_limit = limit if limit is not None else self.max_search_results
+        urls = self._search_duckduckgo(query, result_limit)
+        if not urls:
+            urls = self._search_bing(query, result_limit)
+        time.sleep(self.delay_seconds)
+        return urls
+
+    def _search_duckduckgo(self, query: str, limit: int) -> list[str]:
         search_url = f"https://duckduckgo.com/html/?q={quote_plus(query)}"
         html = self._safe_get(search_url)
         if not html:
@@ -165,15 +199,63 @@ class DeanScraper:
             cleaned = self._extract_redirect_target(href)
             if cleaned:
                 urls.append(cleaned)
-            if len(urls) >= result_limit:
+            if len(urls) >= limit:
                 break
-        time.sleep(self.delay_seconds)
-        return urls
+        return list(dict.fromkeys(urls))
+
+    def _search_bing(self, query: str, limit: int) -> list[str]:
+        search_url = f"https://www.bing.com/search?q={quote_plus(query)}"
+        html = self._safe_get(search_url)
+        if not html:
+            return []
+
+        soup = BeautifulSoup(html, "html.parser")
+        urls: list[str] = []
+        for link in soup.select("li.b_algo h2 a"):
+            href = link.get("href")
+            if not href:
+                continue
+            cleaned = self._extract_redirect_target(href)
+            if cleaned and not self._is_search_engine_internal(cleaned):
+                urls.append(cleaned)
+            if len(urls) >= limit:
+                break
+
+        # Fallback: extract from all anchors because Bing markup differs by locale/query.
+        if len(urls) < limit:
+            for link in soup.select("a[href]"):
+                href = link.get("href")
+                if not href:
+                    continue
+                cleaned = self._extract_redirect_target(href)
+                if not cleaned or self._is_search_engine_internal(cleaned):
+                    continue
+                urls.append(cleaned)
+                if len(urls) >= limit:
+                    break
+        return list(dict.fromkeys(urls))
+
+    @staticmethod
+    def _is_search_engine_internal(url: str) -> bool:
+        host = urlparse(url).netloc.lower().replace("www.", "")
+        return host.endswith("bing.com") or host.endswith("duckduckgo.com")
 
     @staticmethod
     def _extract_redirect_target(url: str) -> str | None:
         parsed = urlparse(url)
         if parsed.netloc and parsed.scheme in {"http", "https"}:
+            if parsed.netloc.lower().endswith("bing.com") and parsed.path.startswith("/ck/"):
+                query = parse_qs(parsed.query)
+                maybe_encoded = query.get("u", [None])[0]
+                if maybe_encoded and maybe_encoded.startswith("a1"):
+                    encoded_target = maybe_encoded[2:]
+                    padding = "=" * (-len(encoded_target) % 4)
+                    try:
+                        decoded = base64.b64decode(encoded_target + padding).decode("utf-8")
+                    except (ValueError, UnicodeDecodeError):
+                        decoded = None
+                    if decoded and urlparse(decoded).scheme in {"http", "https"}:
+                        return decoded
             return url
 
         if parsed.path.startswith("/l/"):
@@ -237,8 +319,11 @@ class DeanScraper:
     def discover_candidate_pages(self, homepage: str, university_name: str) -> list[str]:
         urls: list[str] = [homepage]
         seen: set[str] = set(urls)
+        parsed_home = urlparse(homepage)
+        root = f"{parsed_home.scheme}://{parsed_home.netloc}"
 
         html = self._safe_get(homepage)
+        dynamic_link_cap = max(6, self.max_pages // 2)
         if html:
             soup = BeautifulSoup(html, "html.parser")
             for link in soup.select("a[href]"):
@@ -253,33 +338,27 @@ class DeanScraper:
                     if full not in seen:
                         urls.append(full)
                         seen.add(full)
-                if len(urls) >= self.max_pages:
+                if len(urls) >= dynamic_link_cap:
                     break
 
-        parsed_home = urlparse(homepage)
-        root = f"{parsed_home.scheme}://{parsed_home.netloc}"
-        seeded_paths = [
-            "/leadership",
-            "/administration",
-            "/directory",
-            "/dean",
-            "/contact",
-            "/about",
-            "/faculty",
-        ]
-        for path in seeded_paths:
-            full = self._normalize_url(urljoin(root, path))
-            if full not in seen:
-                urls.append(full)
-                seen.add(full)
+        sitemap_links = self._discover_sitemap_links(root)
+        for sitemap_link in sitemap_links:
+            normalized = self._normalize_url(sitemap_link)
+            if normalized in seen or not self._same_domain(homepage, normalized):
+                continue
+            lowered = normalized.lower()
+            if any(term in lowered for term in PRIORITY_LINK_TERMS):
+                urls.append(normalized)
+                seen.add(normalized)
             if len(urls) >= self.max_pages:
                 break
 
-        host = parsed_home.netloc
+        host = parsed_home.netloc.replace("www.", "")
         for query in (
             f"site:{host} dean",
             f"site:{host} \"dean\" \"email\"",
             f"site:{host} \"office of the dean\"",
+            f"site:{host} \"dean\" \"contact\"",
             f"{university_name} dean contact",
         ):
             for found in self.search_web(query):
@@ -292,7 +371,81 @@ class DeanScraper:
             if len(urls) >= self.max_pages:
                 break
 
+        seeded_paths = [
+            "/leadership",
+            "/administration",
+            "/directory",
+            "/dean",
+            "/contact",
+            "/about",
+            "/office-of-the-dean",
+            "/schools",
+        ]
+        for path in seeded_paths:
+            full = self._normalize_url(urljoin(root, path))
+            if full not in seen:
+                urls.append(full)
+                seen.add(full)
+            if len(urls) >= self.max_pages:
+                break
+
         return urls[: self.max_pages]
+
+    def _discover_sitemap_links(self, root_url: str) -> list[str]:
+        robots_url = f"{root_url.rstrip('/')}/robots.txt"
+        robots = self._safe_get(robots_url)
+        sitemaps: list[str] = []
+        if robots:
+            for line in robots.splitlines():
+                if line.lower().startswith("sitemap:"):
+                    sitemap_url = line.split(":", 1)[1].strip()
+                    if sitemap_url.startswith("http"):
+                        sitemaps.append(sitemap_url)
+
+        if not sitemaps:
+            sitemaps = [f"{root_url.rstrip('/')}/sitemap.xml"]
+
+        found_links: list[str] = []
+        seen_sitemaps: set[str] = set()
+        for sitemap in sitemaps[:5]:
+            if sitemap in seen_sitemaps:
+                continue
+            seen_sitemaps.add(sitemap)
+            xml = self._safe_get(sitemap)
+            if not xml:
+                continue
+            locs = re.findall(r"<loc>(.*?)</loc>", xml, flags=re.IGNORECASE)
+            for loc in locs[:600]:
+                clean = self._clean_xml_loc(loc)
+                if clean:
+                    found_links.append(clean)
+            # Nested sitemap index support.
+            nested_sitemaps = [
+                self._clean_xml_loc(loc)
+                for loc in locs[:150]
+                if self._clean_xml_loc(loc) and self._clean_xml_loc(loc).endswith(".xml")
+            ]
+            for nested in nested_sitemaps[:3]:
+                nested_xml = self._safe_get(nested)
+                if not nested_xml:
+                    continue
+                nested_locs = re.findall(r"<loc>(.*?)</loc>", nested_xml, flags=re.IGNORECASE)
+                for loc in nested_locs[:400]:
+                    clean = self._clean_xml_loc(loc)
+                    if clean:
+                        found_links.append(clean)
+
+        return list(dict.fromkeys(found_links))
+
+    @staticmethod
+    def _clean_xml_loc(value: str) -> str | None:
+        clean = re.sub(r"\s+", "", value).strip()
+        if not clean:
+            return None
+        clean = clean.replace("&amp;", "&")
+        if urlparse(clean).scheme not in {"http", "https"}:
+            return None
+        return clean
 
     @staticmethod
     def _clean_line(line: str) -> str:
@@ -310,8 +463,8 @@ class DeanScraper:
                 continue
 
             context = " ".join(lines[max(0, idx - 2) : min(len(lines), idx + 3)])
-            title = self._extract_title(context) or self._extract_title(line)
-            name = self._extract_name(context) or self._extract_name(line)
+            title = self._extract_title(line) or self._extract_title(context)
+            name = self._extract_name(line) or self._extract_name(context)
             email = self._pick_best_email(context, emails)
             address = self._pick_best_address(context, addresses)
 
@@ -322,19 +475,16 @@ class DeanScraper:
                 address=address,
                 source_url=source_url,
             )
-            if contact.name or contact.email or contact.address:
+            if contact.name or contact.email:
                 contacts.append(contact)
 
-        if not contacts and emails:
-            fallback_email = next(
-                (e for e in emails if "dean" in e.lower()),
-                emails[0],
-            )
+        dean_emails = [email for email in emails if "dean" in email.lower()]
+        if not contacts and dean_emails:
             contacts.append(
                 DeanContact(
                     name=None,
                     title="Dean (inferred)",
-                    email=fallback_email,
+                    email=dean_emails[0],
                     address=addresses[0] if addresses else None,
                     source_url=source_url,
                 )
@@ -345,7 +495,7 @@ class DeanScraper:
     @staticmethod
     def _extract_title(text: str) -> str | None:
         match = re.search(
-            r"(?i)\b((?:interim|acting|associate|vice)\s+dean|dean(?: of [A-Za-z ,&-]{2,80})?)\b",
+            r"(?i)\b((?:interim|acting|associate|vice)\s+dean|dean(?:\s+of\s+[A-Za-z& -]{2,40})?)\b",
             text,
         )
         if not match:
@@ -360,12 +510,31 @@ class DeanScraper:
         if not match:
             return None
         name = re.sub(r"\s+", " ", match.group(1)).strip(" ,.-")
-        tokens = [token.strip(".,") for token in name.split()]
-        if any(token in STOPWORDS_FOR_NAME for token in tokens):
-            return None
-        if len(tokens) < 2:
+        if not DeanScraper._is_plausible_name(name):
             return None
         return name
+
+    @staticmethod
+    def _is_plausible_name(name: str) -> bool:
+        tokens = [token.strip(".,") for token in name.split() if token.strip(".,")]
+        if len(tokens) < 2 or len(tokens) > 5:
+            return False
+        cleaned_tokens = [token for token in tokens if token.lower() not in {"dr", "dr.", "prof", "prof."}]
+        if len(cleaned_tokens) < 2:
+            return False
+        if any(token.lower() in STOPWORDS_FOR_NAME for token in cleaned_tokens):
+            return False
+        for idx, token in enumerate(cleaned_tokens):
+            if len(token) == 1:
+                # Allow middle initials like "Sarah A. Soule".
+                if idx in {0, len(cleaned_tokens) - 1} or not token.isupper():
+                    return False
+                continue
+            if len(token) < 2:
+                return False
+            if not re.match(r"^[A-Z][A-Za-z'`-]*$", token):
+                return False
+        return True
 
     @staticmethod
     def _extract_addresses(lines: list[str], full_text: str) -> list[str]:
@@ -388,14 +557,14 @@ class DeanScraper:
         for email in all_emails:
             if "dean" in email.lower():
                 return email
-        return all_emails[0] if all_emails else None
+        return None
 
     @staticmethod
     def _pick_best_address(context: str, all_addresses: list[str]) -> str | None:
         context_match = ADDRESS_RE.search(context) or PO_BOX_RE.search(context)
         if context_match:
             return context_match.group(0)
-        return all_addresses[0] if all_addresses else None
+        return None
 
     @staticmethod
     def _dedupe_contacts(contacts: Iterable[DeanContact]) -> list[DeanContact]:
@@ -559,6 +728,11 @@ def parse_args() -> argparse.Namespace:
         help="Delay between network requests (default: 0.4).",
     )
     parser.add_argument(
+        "--no-proxy-fallback",
+        action="store_true",
+        help="Disable r.jina.ai fallback for pages that block direct scraping.",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable verbose logs on stderr.",
@@ -582,6 +756,7 @@ def main() -> int:
         max_pages=args.max_pages,
         max_search_results=args.max_search_results,
         delay_seconds=args.delay_seconds,
+        allow_proxy_fallback=not args.no_proxy_fallback,
         verbose=args.verbose,
     )
     results = [scraper.scrape_university(name) for name in universities]

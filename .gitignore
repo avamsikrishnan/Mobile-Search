@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+sample_results.json
+sample_results.csv
+dean_results.json
+dean_results.csv
